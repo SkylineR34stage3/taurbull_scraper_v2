@@ -1,1 +1,2 @@
-worker: python src/main.py 
+release: python -m pip install -e .
+scheduler: python -m src.main --once
