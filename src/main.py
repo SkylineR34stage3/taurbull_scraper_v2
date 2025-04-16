@@ -33,6 +33,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ElevenLabs agent ID to assign knowledge base documents to
+AGENT_ID = "2AmUavf0llkEhjBRMstL"
+
 
 def check_api_connectivity():
     """
@@ -108,12 +111,14 @@ def process_page(page_name, url):
             if force_update:
                 logger.info("Running on Heroku, using force_update=True")
             
-            success = elevenlabs.update_knowledge_base(page_name, content, force_update=force_update)
+            # Update the knowledge base and assign to the agent
+            logger.info(f"Assigning document to agent {AGENT_ID}")
+            success = elevenlabs.update_knowledge_base(page_name, content, force_update=force_update, agent_id=AGENT_ID)
             
             if success:
                 # Save the new content
                 content_manager.save_content(page_name, content)
-                logger.info(f"Successfully updated {page_name} in knowledge base")
+                logger.info(f"Successfully updated {page_name} in knowledge base and assigned to agent")
                 return True
             else:
                 logger.error(f"Failed to update {page_name} in knowledge base")

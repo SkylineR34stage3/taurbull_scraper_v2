@@ -52,8 +52,8 @@ class ContentManager:
         # Ensure the cache directory exists
         CACHE_DIR.mkdir(exist_ok=True)
         
-        content_path = CACHE_DIR / f"{page_name}_content.txt"
-        hash_path = CACHE_DIR / f"{page_name}_hash.txt"
+        content_path = CACHE_DIR / f"{page_name}.txt"
+        hash_path = CACHE_DIR / f"{page_name}.md5"
         
         # Save content
         with open(content_path, 'w', encoding='utf-8') as f:
@@ -78,7 +78,7 @@ class ContentManager:
         Returns:
             bool: True if content has changed or cache doesn't exist
         """
-        hash_path = CACHE_DIR / f"{page_name}_hash.txt"
+        hash_path = CACHE_DIR / f"{page_name}.md5"
         
         # If hash file doesn't exist, content is considered changed
         if not hash_path.exists():
@@ -111,7 +111,7 @@ class ContentManager:
         Returns:
             str or None: Cached content if exists, None otherwise
         """
-        content_path = CACHE_DIR / f"{page_name}_content.txt"
+        content_path = CACHE_DIR / f"{page_name}.txt"
         
         if not content_path.exists():
             return None
