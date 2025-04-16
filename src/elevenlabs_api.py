@@ -4,6 +4,7 @@ ElevenLabs API client for knowledge base management.
 import logging
 import requests
 import json
+import tempfile
 from pathlib import Path
 
 # Import using try/except for flexibility
@@ -47,87 +48,156 @@ class ElevenLabsClient:
         if self.api_key == "your_api_key_here":
             logger.warning("Using placeholder API key. Please update the .env file with your actual ElevenLabs API key.")
     
-    def get_knowledge_base_files(self):
+    def get_user_info(self):
         """
-        Get list of files in the knowledge base.
+        Get user account information.
         
         Returns:
-            list: List of file information dictionaries
+            dict or None: User info if successful, None otherwise
         """
-        url = f"{self.api_url}/knowledge-base/files"
+        url = f"{self.api_url}/user"
         
         try:
             response = requests.get(url, headers=self.headers)
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:
-            logger.error(f"Error getting knowledge base files: {e}")
-            return []
+            logger.error(f"Error getting user info: {e}")
+            return None
     
-    def delete_file(self, file_id):
+    def add_to_knowledge_base(self, name, content, document_type="text"):
         """
-        Delete a file from the knowledge base.
+        Add content to the knowledge base.
         
         Args:
-            file_id (str): ID of the file to delete
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        url = f"{self.api_url}/knowledge-base/files/{file_id}"
-        
-        try:
-            response = requests.delete(url, headers=self.headers)
-            response.raise_for_status()
-            logger.info(f"Successfully deleted file {file_id}")
-            return True
-        except requests.RequestException as e:
-            logger.error(f"Error deleting file {file_id}: {e}")
-            return False
-    
-    def upload_file(self, page_name, content):
-        """
-        Upload content as a file to the knowledge base.
-        
-        Args:
-            page_name (str): Name of the page (used for filename)
-            content (str): Content to upload
+            name (str): Name for the knowledge base document
+            content (str): Text content to add
+            document_type (str): Type of document ('file', 'url', 'text')
             
         Returns:
             dict or None: Response data if successful, None otherwise
         """
-        url = f"{self.api_url}/knowledge-base/files"
+        url = f"{self.api_url}/convai/knowledge-base"
         
-        # Create a temporary file
-        temp_file_path = Path(f"/tmp/{page_name}.txt")
-        with open(temp_file_path, 'w', encoding='utf-8') as f:
-            f.write(content)
+        if document_type == "file":
+            # Create a temporary file
+            with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='.txt') as temp_file:
+                temp_file_path = Path(temp_file.name)
+                temp_file.write(content)
+            
+            try:
+                # Create multipart form data
+                files = {
+                    'file': (f"{name}.txt", open(temp_file_path, 'rb'), 'text/plain')
+                }
+                
+                data = {
+                    'document_name': name,
+                    'document_type': 'file'
+                }
+                
+                # Use multipart/form-data format for file upload
+                response = requests.post(
+                    url, 
+                    headers={"xi-api-key": self.api_key},  # Don't include Accept header for multipart
+                    data=data,
+                    files=files
+                )
+                
+                response.raise_for_status()
+                logger.info(f"Successfully added {name} to knowledge base")
+                return response.json()
+            except requests.RequestException as e:
+                logger.error(f"Error adding content to knowledge base: {e}")
+                return None
+            finally:
+                # Clean up temporary file
+                if temp_file_path.exists():
+                    temp_file_path.unlink()
         
-        try:
-            files = {
-                "file": (f"{page_name}.txt", open(temp_file_path, 'rb'), "text/plain")
+        elif document_type == "url":
+            # Create request payload for URL
+            payload = {
+                "document_name": name,
+                "document_type": "url",
+                "url": content  # In this case, content should be a URL
             }
             
-            # Use multipart/form-data format for file upload
-            response = requests.post(
-                url, 
-                headers={"xi-api-key": self.api_key},  # Don't include Accept header for multipart
-                files=files
-            )
+            try:
+                response = requests.post(
+                    url,
+                    headers=self.headers,
+                    json=payload
+                )
+                
+                response.raise_for_status()
+                logger.info(f"Successfully added URL {name} to knowledge base")
+                return response.json()
+            except requests.RequestException as e:
+                logger.error(f"Error adding URL to knowledge base: {e}")
+                return None
+        
+        else:
+            # Handle text content (this approach may not be supported by the API anymore)
+            logger.warning("Text document type might not be supported directly. Converting to file upload.")
+            return self.add_to_knowledge_base(name, content, document_type="file")
+    
+    def get_knowledge_base_docs(self):
+        """
+        Get list of documents in the knowledge base.
+        
+        Returns:
+            list: List of document information dictionaries
+        """
+        url = f"{self.api_url}/convai/knowledge-base"
+        
+        try:
+            response = requests.get(url, headers=self.headers)
             response.raise_for_status()
-            logger.info(f"Successfully uploaded {page_name}.txt to knowledge base")
-            return response.json()
+            data = response.json()
+            
+            # Check if the response has the expected structure
+            if isinstance(data, dict) and "documents" in data:
+                return data["documents"]
+            
+            # For backwards compatibility with older API versions or unexpected response formats
+            logger.warning(f"Unexpected knowledge base response format: {type(data)}")
+            if isinstance(data, dict) and "items" in data:
+                return data["items"]
+            elif isinstance(data, list):
+                return data
+            else:
+                logger.error("Unable to extract documents from knowledge base response")
+                return []
+            
         except requests.RequestException as e:
-            logger.error(f"Error uploading file {page_name}.txt: {e}")
-            return None
-        finally:
-            # Clean up temporary file
-            if temp_file_path.exists():
-                temp_file_path.unlink()
+            logger.error(f"Error getting knowledge base documents: {e}")
+            return []
+    
+    def delete_knowledge_base_doc(self, doc_id):
+        """
+        Delete a document from the knowledge base.
+        
+        Args:
+            doc_id (str): ID of the document to delete
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        url = f"{self.api_url}/convai/knowledge-base/{doc_id}"
+        
+        try:
+            response = requests.delete(url, headers=self.headers)
+            response.raise_for_status()
+            logger.info(f"Successfully deleted document {doc_id}")
+            return True
+        except requests.RequestException as e:
+            logger.error(f"Error deleting document {doc_id}: {e}")
+            return False
     
     def update_knowledge_base(self, page_name, content, force_update=False):
         """
-        Update a file in the knowledge base, deleting any existing version first.
+        Update the knowledge base with new content, deleting any existing version first.
         
         Args:
             page_name (str): Name of the page
@@ -137,20 +207,33 @@ class ElevenLabsClient:
         Returns:
             bool: True if successful, False otherwise
         """
-        filename = f"{page_name}.txt"
+        logger.info(f"Updating knowledge base for {page_name}")
         
-        # Get existing files
-        files = self.get_knowledge_base_files()
-        existing_file = next((f for f in files if f.get("name") == filename), None)
+        # Get existing documents
+        existing_docs = self.get_knowledge_base_docs()
         
-        # Delete existing file if found
-        if existing_file:
-            logger.info(f"Found existing file {filename}, deleting first")
-            file_id = existing_file.get("id")
-            if not self.delete_file(file_id):
-                logger.error(f"Failed to delete existing file {filename}")
-                return False
+        # Find existing document with same name
+        existing_doc = next((d for d in existing_docs if isinstance(d, dict) and d.get("name") == f"{page_name}.txt"), None)
+        if not existing_doc:
+            # Try without .txt extension
+            existing_doc = next((d for d in existing_docs if isinstance(d, dict) and d.get("name") == page_name), None)
         
-        # Upload new file
-        result = self.upload_file(page_name, content)
-        return result is not None 
+        # Delete existing document if found
+        if existing_doc:
+            doc_id = existing_doc.get("id")
+            logger.info(f"Found existing document '{existing_doc.get('name')}' with ID {doc_id}, deleting first")
+            if not self.delete_knowledge_base_doc(doc_id):
+                logger.error(f"Failed to delete existing document {existing_doc.get('name')}")
+                if not force_update:
+                    return False
+        
+        # Add new document as a file upload
+        result = self.add_to_knowledge_base(page_name, content, document_type="file")
+        success = result is not None
+        
+        if success:
+            logger.info(f"Successfully updated knowledge base with {page_name}")
+        else:
+            logger.error(f"Failed to update knowledge base with {page_name}")
+        
+        return success 

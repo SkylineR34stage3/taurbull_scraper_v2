@@ -5,6 +5,7 @@ import logging
 import time
 import schedule
 import sys
+import os
 from pathlib import Path
 
 # Import modules using relative imports
@@ -33,6 +34,35 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def check_api_connectivity():
+    """
+    Check connectivity to the ElevenLabs API and show user information.
+    
+    Returns:
+        bool: True if connectivity check passes
+    """
+    elevenlabs = ElevenLabsClient()
+    
+    # Try to get user info to test API key
+    user_info = elevenlabs.get_user_info()
+    
+    if not user_info:
+        logger.error("Failed to connect to ElevenLabs API. Please check your API key and connection.")
+        return False
+    
+    # Log user information
+    tier = user_info.get("subscription", {}).get("tier", "unknown")
+    logger.info(f"Connected to ElevenLabs API. Account tier: {tier}")
+    
+    # Check if user has conversational AI access
+    # Note: This is just a basic check - actual access might depend on the specific tier details
+    if tier not in ["creator", "pro", "enterprise"]:
+        logger.warning("Your ElevenLabs account might not have access to the Knowledge Base API.")
+        logger.warning("Please ensure you have an appropriate subscription tier.")
+    
+    return True
+
+
 def process_page(page_name, url):
     """
     Process a single page - scrape, check for changes, and update knowledge base if needed.
@@ -59,10 +89,16 @@ def process_page(page_name, url):
             logger.warning(f"Scraping for page type '{page_name}' not implemented yet")
             return False
         
+        if not content:
+            logger.error(f"Failed to extract content from {page_name}")
+            return False
+            
+        logger.info(f"Extracted {len(content.split())} words from {page_name}")
+        
         # Check if content has changed
         if content_manager.has_content_changed(page_name, content):
             # Update the knowledge base
-            logger.info(f"Updating knowledge base for {page_name}")
+            logger.info(f"Content changed for {page_name}, updating knowledge base")
             success = elevenlabs.update_knowledge_base(page_name, content)
             
             if success:
@@ -87,6 +123,11 @@ def run_scraper():
     Run the scraper for all configured pages.
     """
     logger.info("Starting scraper run")
+    
+    # First check API connectivity
+    if not check_api_connectivity():
+        logger.error("API connectivity check failed. Scraper run aborted.")
+        return
     
     # Process each page
     updated_pages = 0
@@ -119,6 +160,12 @@ def main():
     Main entry point for the application.
     """
     logger.info("Taurbull Website Scraper starting")
+    
+    # Check if ELEVENLABS_API_KEY is set
+    if not os.environ.get("ELEVENLABS_API_KEY"):
+        logger.error("ELEVENLABS_API_KEY environment variable is not set.")
+        logger.error("Please set your API key in the .env file or as an environment variable.")
+        return 1
     
     # Check if running as a one-time job or scheduled service
     if len(sys.argv) > 1 and sys.argv[1] == "--once":
