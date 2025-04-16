@@ -208,9 +208,28 @@ class ElevenLabsClient:
         
         try:
             response = requests.delete(url, headers=self.headers)
-            response.raise_for_status()
-            logger.info(f"Successfully deleted document {doc_id}")
-            return True
+            
+            # Check response status
+            if response.status_code == 404:
+                # Document not found is considered a success (already deleted)
+                logger.warning(f"Document {doc_id} not found (404). Considering it already deleted.")
+                return True
+            elif response.status_code == 400:
+                # Bad request might be due to document already being deleted or other API constraints
+                logger.warning(f"Bad request (400) when deleting document {doc_id}. This may happen if the document is already deleted or in use.")
+                # Check if there's additional error information in the response
+                try:
+                    error_data = response.json()
+                    logger.warning(f"Error details: {error_data}")
+                except ValueError:
+                    logger.warning(f"Response text: {response.text}")
+                return False
+            else:
+                # For any other status code, raise for status to catch other errors
+                response.raise_for_status()
+                logger.info(f"Successfully deleted document {doc_id}")
+                return True
+            
         except requests.RequestException as e:
             logger.error(f"Error deleting document {doc_id}: {e}")
             return False
@@ -369,7 +388,8 @@ class ElevenLabsClient:
                 logger.info(f"Found existing document '{existing_doc.get('name')}' with ID {doc_id}, deleting first")
                 
                 try:
-                    if not self.delete_knowledge_base_doc(doc_id):
+                    delete_success = self.delete_knowledge_base_doc(doc_id)
+                    if not delete_success:
                         logger.warning(f"Failed to delete existing document {existing_doc.get('name')}")
                         # If force_update is true, continue anyway
                         if not force_update:

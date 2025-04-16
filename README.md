@@ -5,9 +5,12 @@ A Python application that scrapes content from Taurbull website and uploads it t
 ## Features
 
 - Scrapes FAQ content from Taurbull website
+- Scrapes legal pages (Legal Notice, Privacy Policy, Terms of Service)
 - Parses structured JSON-LD data
+- Extracts formatted text from legal documents
 - Tracks content changes using MD5 hashing
 - Uploads content to ElevenLabs knowledge base via API
+- Assigns documents to specific ElevenLabs agents
 - Scheduled execution for automatic updates
 
 ## ElevenLabs Knowledge Base Integration
@@ -68,15 +71,34 @@ python diagnose_elevenlabs_knowledge_base.py
 
 ## Usage
 
-Run the scraper manually:
+Run the scraper manually (one-time):
 ```bash
 python -m src.main --once
+```
+
+Force update all pages regardless of content changes:
+```bash
+python -m src.main --once --force
 ```
 
 For scheduled execution:
 ```bash
 python -m src.main
 ```
+
+With forced updates at each scheduled run:
+```bash
+python -m src.main --force
+```
+
+### Testing the Legal Pages Scraper
+
+To test the legal pages scraper without uploading to ElevenLabs:
+```bash
+python -m src.test_legal_scraper
+```
+
+This will scrape the legal pages and save the extracted content to the `test_output` directory for review.
 
 ## Deployment
 
