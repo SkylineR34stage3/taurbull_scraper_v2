@@ -80,6 +80,9 @@ def process_page(page_name, url):
     content_manager = ContentManager()
     elevenlabs = ElevenLabsClient()
     
+    # Check if running on Heroku (for special handling)
+    is_heroku = 'DYNO' in os.environ
+    
     try:
         # Scrape the page content
         if page_name == "faq":
@@ -99,7 +102,13 @@ def process_page(page_name, url):
         if content_manager.has_content_changed(page_name, content):
             # Update the knowledge base
             logger.info(f"Content changed for {page_name}, updating knowledge base")
-            success = elevenlabs.update_knowledge_base(page_name, content)
+            
+            # Use force_update=True when running on Heroku to handle API issues
+            force_update = is_heroku
+            if force_update:
+                logger.info("Running on Heroku, using force_update=True")
+            
+            success = elevenlabs.update_knowledge_base(page_name, content, force_update=force_update)
             
             if success:
                 # Save the new content

@@ -209,31 +209,53 @@ class ElevenLabsClient:
         """
         logger.info(f"Updating knowledge base for {page_name}")
         
-        # Get existing documents
-        existing_docs = self.get_knowledge_base_docs()
-        
-        # Find existing document with same name
-        existing_doc = next((d for d in existing_docs if isinstance(d, dict) and d.get("name") == f"{page_name}.txt"), None)
-        if not existing_doc:
-            # Try without .txt extension
-            existing_doc = next((d for d in existing_docs if isinstance(d, dict) and d.get("name") == page_name), None)
-        
-        # Delete existing document if found
-        if existing_doc:
-            doc_id = existing_doc.get("id")
-            logger.info(f"Found existing document '{existing_doc.get('name')}' with ID {doc_id}, deleting first")
-            if not self.delete_knowledge_base_doc(doc_id):
-                logger.error(f"Failed to delete existing document {existing_doc.get('name')}")
-                if not force_update:
-                    return False
-        
-        # Add new document as a file upload
-        result = self.add_to_knowledge_base(page_name, content, document_type="file")
-        success = result is not None
-        
-        if success:
-            logger.info(f"Successfully updated knowledge base with {page_name}")
-        else:
-            logger.error(f"Failed to update knowledge base with {page_name}")
-        
-        return success 
+        try:
+            # Get existing documents
+            existing_docs = self.get_knowledge_base_docs()
+            
+            # Find existing document with same name
+            existing_doc = next((d for d in existing_docs if isinstance(d, dict) and d.get("name") == f"{page_name}.txt"), None)
+            if not existing_doc:
+                # Try without .txt extension
+                existing_doc = next((d for d in existing_docs if isinstance(d, dict) and d.get("name") == page_name), None)
+            
+            # Delete existing document if found
+            if existing_doc:
+                doc_id = existing_doc.get("id")
+                logger.info(f"Found existing document '{existing_doc.get('name')}' with ID {doc_id}, deleting first")
+                
+                try:
+                    if not self.delete_knowledge_base_doc(doc_id):
+                        logger.warning(f"Failed to delete existing document {existing_doc.get('name')}")
+                        # If force_update is true, continue anyway
+                        if not force_update:
+                            logger.info("Skipping update due to deletion failure. Use force_update=True to override.")
+                            return False
+                        logger.info("Proceeding with update despite deletion failure (force_update=True)")
+                except Exception as e:
+                    logger.warning(f"Exception deleting document: {e}")
+                    # If force_update is true, continue anyway
+                    if not force_update:
+                        logger.info("Skipping update due to deletion error. Use force_update=True to override.")
+                        return False
+                    logger.info("Proceeding with update despite deletion error (force_update=True)")
+            
+            # Add new document as a file upload
+            result = self.add_to_knowledge_base(page_name, content, document_type="file")
+            success = result is not None
+            
+            if success:
+                logger.info(f"Successfully updated knowledge base with {page_name}")
+            else:
+                logger.error(f"Failed to update knowledge base with {page_name}")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error updating knowledge base: {e}")
+            # Try direct upload without deletion if force_update is True
+            if force_update:
+                logger.info(f"Attempting direct upload with force_update=True")
+                result = self.add_to_knowledge_base(page_name, content, document_type="file")
+                return result is not None
+            return False 
