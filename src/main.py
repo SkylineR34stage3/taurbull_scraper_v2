@@ -90,6 +90,9 @@ def process_page(page_name, url):
         # Scrape the page content
         if page_name == "faq":
             content = scraper.scrape_faq(url)
+        elif page_name in ["legal_notice", "privacy_policy", "terms_of_service"]:
+            # Handle legal pages using the legal page scraper
+            content = scraper.scrape_legal_page(url)
         else:
             # For future implementation of other page types
             logger.warning(f"Scraping for page type '{page_name}' not implemented yet")

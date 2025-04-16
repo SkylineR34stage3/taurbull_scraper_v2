@@ -106,6 +106,69 @@ class TaurbullScraper:
         logger.info(f"Extracted {faq_items_processed} FAQ items")
         return faq_content.strip()
 
+    def extract_legal_page_content(self, html):
+        """
+        Extract legal page content from HTML.
+        
+        Args:
+            html (str): HTML content of the legal page
+            
+        Returns:
+            str: Formatted legal content as text
+        """
+        logger.debug("Extracting legal page content from HTML")
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        # Find the main content container - usually this is within a specific div or section
+        # For Taurbull's legal pages, the main content is typically in the main section
+        content_container = soup.find('main')
+        
+        if not content_container:
+            # If main tag is not found, try looking for content in article or specific div
+            content_container = soup.find('article') or soup.find('div', {'class': 'page-content'})
+            
+        if not content_container:
+            logger.warning("Could not find main content container. Using body content instead.")
+            content_container = soup.body
+            
+        if not content_container:
+            logger.error("Could not extract content from page")
+            return ""
+            
+        # Extract all headings and paragraphs from the content
+        headings = content_container.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+        paragraphs = content_container.find_all('p')
+        
+        # Format the content
+        formatted_content = ""
+        
+        # Add major headings first
+        for heading in headings:
+            heading_text = heading.get_text().strip()
+            if heading_text:
+                tag = heading.name  # gets h1, h2, etc.
+                # Format based on heading level
+                if tag == 'h1':
+                    formatted_content += f"# {heading_text}\n\n"
+                elif tag == 'h2':
+                    formatted_content += f"## {heading_text}\n\n"
+                else:
+                    formatted_content += f"### {heading_text}\n\n"
+        
+        # Add paragraphs
+        for para in paragraphs:
+            para_text = para.get_text().strip().replace('\n', ' ')
+            if para_text:
+                formatted_content += f"{para_text}\n\n"
+        
+        # If we didn't get any structured content, try to extract all text
+        if not formatted_content.strip():
+            logger.warning("No structured content found. Extracting all text.")
+            formatted_content = content_container.get_text().strip()
+            
+        logger.info(f"Extracted {len(formatted_content.split())} words from legal page")
+        return formatted_content.strip()
+
     def scrape_faq(self, url):
         """
         Scrape FAQ content from the specified URL.
@@ -118,4 +181,18 @@ class TaurbullScraper:
         """
         html = self.get_page_content(url)
         content = self.extract_faq_content(html)
+        return content
+        
+    def scrape_legal_page(self, url):
+        """
+        Scrape legal page content from the specified URL.
+        
+        Args:
+            url (str): URL of the legal page
+            
+        Returns:
+            str: Formatted legal page content
+        """
+        html = self.get_page_content(url)
+        content = self.extract_legal_page_content(html)
         return content 

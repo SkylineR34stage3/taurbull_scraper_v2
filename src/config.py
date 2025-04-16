@@ -23,9 +23,15 @@ SCRAPE_INTERVAL_HOURS = int(os.getenv("SCRAPE_INTERVAL_HOURS", "24"))
 
 # URLs
 FAQ_URL = os.getenv("FAQ_URL", "https://taurbull.com/pages/faq")
+LEGAL_NOTICE_URL = os.getenv("LEGAL_NOTICE_URL", "https://taurbull.com/policies/legal-notice")
+PRIVACY_POLICY_URL = os.getenv("PRIVACY_POLICY_URL", "https://taurbull.com/policies/privacy-policy")
+TERMS_OF_SERVICE_URL = os.getenv("TERMS_OF_SERVICE_URL", "https://taurbull.com/policies/terms-of-service")
 
 # Dictionary mapping page names to URLs
 PAGES = {
     "faq": FAQ_URL,
+    "legal_notice": LEGAL_NOTICE_URL,
+    "privacy_policy": PRIVACY_POLICY_URL,
+    "terms_of_service": TERMS_OF_SERVICE_URL,
     # Add more pages here as needed
 } 
