@@ -66,13 +66,14 @@ def check_api_connectivity():
     return True
 
 
-def process_page(page_name, url):
+def process_page(page_name, url, force_scrape=False):
     """
     Process a single page - scrape, check for changes, and update knowledge base if needed.
     
     Args:
         page_name (str): Name of the page
         url (str): URL of the page
+        force_scrape (bool): Whether to force update regardless of content changes
         
     Returns:
         bool: True if page was updated, False otherwise
@@ -104,15 +105,19 @@ def process_page(page_name, url):
             
         logger.info(f"Extracted {len(content.split())} words from {page_name}")
         
-        # Check if content has changed
-        if content_manager.has_content_changed(page_name, content):
+        # Check if content has changed or force_scrape is enabled
+        if force_scrape or content_manager.has_content_changed(page_name, content):
             # Update the knowledge base
-            logger.info(f"Content changed for {page_name}, updating knowledge base")
+            if force_scrape:
+                logger.info(f"Force scrape enabled, updating knowledge base for {page_name}")
+            else:
+                logger.info(f"Content changed for {page_name}, updating knowledge base")
             
-            # Use force_update=True when running on Heroku to handle API issues
-            force_update = is_heroku
+            # Use force_update=True when running on Heroku to handle API issues or when force_scrape is enabled
+            force_update = is_heroku or force_scrape
             if force_update:
-                logger.info("Running on Heroku, using force_update=True")
+                log_reason = "running on Heroku" if is_heroku else "force scrape enabled"
+                logger.info(f"Using force_update=True ({log_reason})")
             
             # Update the knowledge base and assign to the agent
             logger.info(f"Assigning document to agent {AGENT_ID}")
@@ -135,11 +140,14 @@ def process_page(page_name, url):
         return False
 
 
-def run_scraper():
+def run_scraper(force_scrape=False):
     """
     Run the scraper for all configured pages.
+    
+    Args:
+        force_scrape (bool): Whether to force scrape all pages regardless of content changes
     """
-    logger.info("Starting scraper run")
+    logger.info(f"Starting scraper run (force_scrape={force_scrape})")
     
     # First check API connectivity
     if not check_api_connectivity():
@@ -149,22 +157,25 @@ def run_scraper():
     # Process each page
     updated_pages = 0
     for page_name, url in PAGES.items():
-        if process_page(page_name, url):
+        if process_page(page_name, url, force_scrape):
             updated_pages += 1
     
     logger.info(f"Scraper run completed. Updated {updated_pages} of {len(PAGES)} pages")
 
 
-def schedule_scraper():
+def schedule_scraper(force_scrape=False):
     """
     Schedule the scraper to run at regular intervals.
+    
+    Args:
+        force_scrape (bool): Whether to force scrape all pages regardless of content changes
     """
     # Schedule the job
-    schedule.every(SCRAPE_INTERVAL_HOURS).hours.do(run_scraper)
+    schedule.every(SCRAPE_INTERVAL_HOURS).hours.do(run_scraper, force_scrape=force_scrape)
     logger.info(f"Scheduled scraper to run every {SCRAPE_INTERVAL_HOURS} hours")
     
     # Run immediately on startup
-    run_scraper()
+    run_scraper(force_scrape=force_scrape)
     
     # Keep the script running
     while True:
@@ -184,11 +195,22 @@ def main():
         logger.error("Please set your API key in the .env file or as an environment variable.")
         return 1
     
+    # Parse command line arguments
+    force_scrape = False
+    run_once = False
+    
+    for arg in sys.argv[1:]:
+        if arg == "--once":
+            run_once = True
+        elif arg == "--force":
+            force_scrape = True
+            logger.info("Force scrape enabled - will update all pages regardless of content changes")
+    
     # Check if running as a one-time job or scheduled service
-    if len(sys.argv) > 1 and sys.argv[1] == "--once":
-        run_scraper()
+    if run_once:
+        run_scraper(force_scrape=force_scrape)
     else:
-        schedule_scraper()
+        schedule_scraper(force_scrape=force_scrape)
     
     return 0
 
