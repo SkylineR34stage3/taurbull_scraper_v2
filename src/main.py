@@ -66,7 +66,7 @@ def check_api_connectivity():
     return True
 
 
-def process_page(page_name, url, force_scrape=False):
+def process_page(page_name, url, force_scrape=False, max_products=None):
     """
     Process a single page - scrape, check for changes, and update knowledge base if needed.
     
@@ -74,6 +74,7 @@ def process_page(page_name, url, force_scrape=False):
         page_name (str): Name of the page
         url (str): URL of the page
         force_scrape (bool): Whether to force update regardless of content changes
+        max_products (int, optional): Maximum number of products to scrape (for products page only)
         
     Returns:
         bool: True if page was updated, False otherwise
@@ -94,6 +95,11 @@ def process_page(page_name, url, force_scrape=False):
         elif page_name in ["legal_notice", "privacy_policy", "terms_of_service"]:
             # Handle legal pages using the legal page scraper
             content = scraper.scrape_legal_page(url)
+        elif page_name == "products":
+            # Handle product pages using the product scraper
+            if max_products:
+                logger.info(f"Limiting product scraping to {max_products} products")
+            content = scraper.scrape_products(url)
         else:
             # For future implementation of other page types
             logger.warning(f"Scraping for page type '{page_name}' not implemented yet")
@@ -140,12 +146,13 @@ def process_page(page_name, url, force_scrape=False):
         return False
 
 
-def run_scraper(force_scrape=False):
+def run_scraper(force_scrape=False, max_products=None):
     """
     Run the scraper for all configured pages.
     
     Args:
         force_scrape (bool): Whether to force scrape all pages regardless of content changes
+        max_products (int, optional): Maximum number of products to scrape
     """
     logger.info(f"Starting scraper run (force_scrape={force_scrape})")
     
@@ -157,25 +164,31 @@ def run_scraper(force_scrape=False):
     # Process each page
     updated_pages = 0
     for page_name, url in PAGES.items():
-        if process_page(page_name, url, force_scrape):
-            updated_pages += 1
+        # For products page, pass the max_products parameter
+        if page_name == "products":
+            if process_page(page_name, url, force_scrape, max_products):
+                updated_pages += 1
+        else:
+            if process_page(page_name, url, force_scrape):
+                updated_pages += 1
     
     logger.info(f"Scraper run completed. Updated {updated_pages} of {len(PAGES)} pages")
 
 
-def schedule_scraper(force_scrape=False):
+def schedule_scraper(force_scrape=False, max_products=None):
     """
     Schedule the scraper to run at regular intervals.
     
     Args:
         force_scrape (bool): Whether to force scrape all pages regardless of content changes
+        max_products (int, optional): Maximum number of products to scrape
     """
     # Schedule the job
-    schedule.every(SCRAPE_INTERVAL_HOURS).hours.do(run_scraper, force_scrape=force_scrape)
+    schedule.every(SCRAPE_INTERVAL_HOURS).hours.do(run_scraper, force_scrape=force_scrape, max_products=max_products)
     logger.info(f"Scheduled scraper to run every {SCRAPE_INTERVAL_HOURS} hours")
     
     # Run immediately on startup
-    run_scraper(force_scrape=force_scrape)
+    run_scraper(force_scrape=force_scrape, max_products=max_products)
     
     # Keep the script running
     while True:
@@ -198,19 +211,26 @@ def main():
     # Parse command line arguments
     force_scrape = False
     run_once = False
+    max_products = None
     
-    for arg in sys.argv[1:]:
+    for i, arg in enumerate(sys.argv[1:]):
         if arg == "--once":
             run_once = True
         elif arg == "--force":
             force_scrape = True
             logger.info("Force scrape enabled - will update all pages regardless of content changes")
+        elif arg == "--max-products" and i+1 < len(sys.argv[1:]):
+            try:
+                max_products = int(sys.argv[i+2])
+                logger.info(f"Maximum product limit set to {max_products}")
+            except (ValueError, IndexError):
+                logger.warning("Invalid max-products value, using unlimited")
     
     # Check if running as a one-time job or scheduled service
     if run_once:
-        run_scraper(force_scrape=force_scrape)
+        run_scraper(force_scrape=force_scrape, max_products=max_products)
     else:
-        schedule_scraper(force_scrape=force_scrape)
+        schedule_scraper(force_scrape=force_scrape, max_products=max_products)
     
     return 0
 

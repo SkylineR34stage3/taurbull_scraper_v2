@@ -4,13 +4,18 @@ Web scraper module for Taurbull website.
 import json
 import logging
 import requests
+import re
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+from typing import List, Dict, Any
 
 # Import using try/except for flexibility
 try:
     from src.config import DEBUG
+    from src.product_scraper import ProductDetailScraper
 except ImportError:
     from config import DEBUG
+    from product_scraper import ProductDetailScraper
 
 # Configure logging
 logging.basicConfig(
@@ -195,4 +200,193 @@ class TaurbullScraper:
         """
         html = self.get_page_content(url)
         content = self.extract_legal_page_content(html)
-        return content 
+        return content
+        
+    def get_all_product_urls(self, catalog_url):
+        """
+        Get all product URLs from the catalog page, handling pagination.
+        
+        Args:
+            catalog_url (str): URL of the product catalog page
+            
+        Returns:
+            list: List of product URLs
+        """
+        logger.info(f"Getting product URLs from {catalog_url}")
+        
+        base_url = "https://taurbull.com"
+        product_urls = []
+        current_page = 1
+        has_next_page = True
+        
+        while has_next_page:
+            page_url = f"{catalog_url}?page={current_page}"
+            logger.info(f"Scraping catalog page {current_page}: {page_url}")
+            
+            try:
+                html = self.get_page_content(page_url)
+                soup = BeautifulSoup(html, "html.parser")
+                
+                # Find product links
+                product_links = []
+                
+                # Method 1: Look for a tags that contain product URLs
+                for a_tag in soup.find_all('a', href=re.compile(r'/products/')):
+                    href = a_tag.get('href')
+                    if href and '/products/' in href and '?' not in href:  # Avoid duplicate links with query params
+                        full_url = urljoin(base_url, href)
+                        if full_url not in product_urls and full_url not in product_links:
+                            product_links.append(full_url)
+                
+                # Method 2: Extract from product JSON data if available
+                script_tags = soup.select("script:not([src])")
+                for script in script_tags:
+                    script_text = script.string
+                    if script_text and "collection_viewed" in script_text and "productVariants" in script_text:
+                        try:
+                            # Find the section with product URLs
+                            start_idx = script_text.find('"productVariants":[')
+                            if start_idx > 0:
+                                # Extract URLs from the JSON data
+                                for match in re.finditer(r'"url":"(/products/[^"]+)"', script_text[start_idx:]):
+                                    product_path = match.group(1)
+                                    full_url = urljoin(base_url, product_path)
+                                    if full_url not in product_urls and full_url not in product_links:
+                                        product_links.append(full_url)
+                        except Exception as e:
+                            logger.error(f"Error parsing product data from script: {e}")
+                
+                if not product_links:
+                    logger.warning(f"No products found on page {current_page}")
+                    break
+                
+                # Add unique URLs to our list
+                for url in product_links:
+                    if url not in product_urls:
+                        product_urls.append(url)
+                
+                # Check if there's a next page
+                next_page_link = soup.select_one("a.pagination__item--next")
+                if not next_page_link:
+                    logger.info("No more pages available")
+                    has_next_page = False
+                else:
+                    current_page += 1
+                    
+            except Exception as e:
+                logger.error(f"Error scraping catalog page {current_page}: {e}")
+                has_next_page = False
+        
+        logger.info(f"Found {len(product_urls)} product URLs")
+        return product_urls
+        
+    def scrape_product_content(self, product_url):
+        """
+        Scrape detailed content for a single product.
+        
+        Args:
+            product_url (str): URL of the product page
+            
+        Returns:
+            dict: Product data including basic info and full text
+        """
+        logger.info(f"Scraping product content from {product_url}")
+        
+        try:
+            html = self.get_page_content(product_url)
+            
+            # Parse the HTML and extract text content
+            soup = BeautifulSoup(html, "html.parser")
+            
+            # Remove scripts and styles
+            for script in soup(['script', 'style']):
+                script.extract()
+            
+            # Get text and clean it up
+            text = soup.get_text(separator=' ').strip()
+            text = re.sub(r'\s+', ' ', text)
+            
+            # Get basic product info
+            scraper = ProductDetailScraper()
+            basic_info = scraper.scrape_product_details(product_url)
+            
+            return {
+                "basic_info": basic_info,
+                "full_text": text,
+                "url": product_url
+            }
+        
+        except Exception as e:
+            logger.error(f"Error scraping product text from {product_url}: {e}")
+            return {
+                "basic_info": {},
+                "full_text": "",
+                "url": product_url,
+                "error": str(e)
+            }
+            
+    def format_product_for_knowledge_base(self, product_data):
+        """
+        Format product data for knowledge base document.
+        
+        Args:
+            product_data (dict): Dictionary with product data
+            
+        Returns:
+            str: Formatted text for knowledge base
+        """
+        basic_info = product_data.get("basic_info", {})
+        full_text = product_data.get("full_text", "")
+        url = product_data.get("url", "")
+        
+        name = basic_info.get("name", "Unknown Product")
+        full_name = basic_info.get("full_name", name)
+        price = basic_info.get("price", "Price not available")
+        description = basic_info.get("description", "")
+        
+        # Create a structured text for the knowledge base
+        formatted_text = f"""
+PRODUCT: {full_name}
+URL: {url}
+PRICE: {price}
+DESCRIPTION: {description}
+
+FULL CONTENT:
+{full_text}
+
+"""
+        return formatted_text
+    
+    def scrape_products(self, catalog_url):
+        """
+        Scrape all products from the catalog and format for knowledge base.
+        
+        Args:
+            catalog_url (str): URL of the product catalog
+            
+        Returns:
+            str: Formatted product content for knowledge base
+        """
+        logger.info(f"Scraping all products from {catalog_url}")
+        
+        # Get all product URLs
+        product_urls = self.get_all_product_urls(catalog_url)
+        
+        if not product_urls:
+            logger.warning("No product URLs found")
+            return ""
+        
+        # Scrape product data from each URL
+        all_product_data = []
+        for i, url in enumerate(product_urls, 1):
+            logger.info(f"Scraping product {i}/{len(product_urls)}: {url}")
+            product_data = self.scrape_product_content(url)
+            all_product_data.append(product_data)
+        
+        # Format data for ElevenLabs knowledge base
+        formatted_content = "# Taurbull Product Catalog\n\n"
+        for product_data in all_product_data:
+            formatted_content += self.format_product_for_knowledge_base(product_data)
+        
+        logger.info(f"Scraped {len(all_product_data)} products with total {len(formatted_content.split())} words")
+        return formatted_content 
