@@ -15,6 +15,13 @@ CACHE_DIR.mkdir(exist_ok=True)
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1"
 
+# Shopify API Configuration
+SHOPIFY_API_KEY = os.getenv("SHOPIFY_API_KEY")
+SHOPIFY_API_SECRET = os.getenv("SHOPIFY_API_SECRET")
+SHOPIFY_API_VERSION = os.getenv("SHOPIFY_API_VERSION", "2024-01")  # Use a recent stable API version
+SHOPIFY_SHOP_NAME = os.getenv("SHOPIFY_SHOP_NAME", "7179a1-2.myshopify.com")
+SHOPIFY_ACCESS_TOKEN = os.getenv("SHOPIFY_ACCESS_TOKEN")
+
 # Scraping Configuration
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 SCRAPE_INTERVAL_HOURS = int(os.getenv("SCRAPE_INTERVAL_HOURS", "24"))

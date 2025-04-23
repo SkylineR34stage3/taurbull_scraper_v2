@@ -15,12 +15,14 @@ try:
     from src.scraper import TaurbullScraper
     from src.content_manager import ContentManager
     from src.elevenlabs_api import ElevenLabsClient
+    from src.shopify_api import ShopifyClient
 except ImportError:
     # When running directly from src directory (python main.py)
     from config import PAGES, SCRAPE_INTERVAL_HOURS, DEBUG
     from scraper import TaurbullScraper
     from content_manager import ContentManager
     from elevenlabs_api import ElevenLabsClient
+    from shopify_api import ShopifyClient
 
 # Configure logging
 logging.basicConfig(
@@ -146,6 +148,84 @@ def process_page(page_name, url, force_scrape=False, max_products=None):
         return False
 
 
+def process_shopify_orders(force_update=False, days=30, limit=100):
+    """
+    Process Shopify orders - fetch, check for changes, and update knowledge base if needed.
+    
+    Args:
+        force_update (bool): Whether to force update regardless of content changes
+        days (int): Number of days to look back for orders
+        limit (int): Maximum number of orders to fetch
+        
+    Returns:
+        bool: True if orders were updated, False otherwise
+    """
+    logger.info(f"Processing Shopify orders (days={days}, limit={limit})")
+    
+    shopify_client = ShopifyClient()
+    content_manager = ContentManager()
+    elevenlabs = ElevenLabsClient()
+    
+    # Check if running on Heroku (for special handling)
+    is_heroku = 'DYNO' in os.environ
+    
+    try:
+        # Fetch the orders
+        orders = shopify_client.get_orders(limit=limit, since_days=days)
+        
+        if not orders:
+            logger.warning("No orders found in the specified time period")
+            return False
+            
+        # Format orders for knowledge base
+        content = shopify_client.format_orders_for_knowledge_base(orders)
+        
+        if not content:
+            logger.error("Failed to format orders content")
+            return False
+            
+        logger.info(f"Extracted {len(content.split())} words from {len(orders)} orders")
+        
+        # Check if content has changed or force_update is enabled
+        if force_update or content_manager.has_content_changed("orders", content):
+            # Update the knowledge base
+            if force_update:
+                logger.info("Force update enabled, updating knowledge base for orders")
+            else:
+                logger.info("Order content changed, updating knowledge base")
+            
+            # Use force_update=True when running on Heroku to handle API issues
+            force_kb_update = is_heroku or force_update
+            if force_kb_update:
+                log_reason = "running on Heroku" if is_heroku else "force update enabled"
+                logger.info(f"Using force_update=True ({log_reason})")
+            
+            # Update the knowledge base
+            logger.info(f"Assigning orders document to agent {AGENT_ID}")
+            success = elevenlabs.update_knowledge_base(
+                "orders", 
+                content, 
+                force_update=force_kb_update,
+                agent_id=AGENT_ID
+            )
+            
+            if success:
+                # Save the new content
+                content_manager.save_content("orders", content)
+                logger.info(f"Successfully updated orders in knowledge base and assigned to agent")
+                return True
+            else:
+                logger.error("Failed to update orders in knowledge base")
+                return False
+        else:
+            logger.info("No changes detected in orders, skipping update")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error processing Shopify orders: {e}", exc_info=True)
+        return False
+
+
 def run_scraper(force_scrape=False, max_products=None):
     """
     Run the scraper for all configured pages.
@@ -173,6 +253,31 @@ def run_scraper(force_scrape=False, max_products=None):
                 updated_pages += 1
     
     logger.info(f"Scraper run completed. Updated {updated_pages} of {len(PAGES)} pages")
+
+
+def run_shopify_orders_fetch(force_update=False, days=30, limit=100):
+    """
+    Run the Shopify orders fetch and update knowledge base.
+    
+    Args:
+        force_update (bool): Whether to force update orders regardless of content changes
+        days (int): Number of days to look back for orders
+        limit (int): Maximum number of orders to fetch
+    """
+    logger.info(f"Starting Shopify orders fetch (force_update={force_update}, days={days}, limit={limit})")
+    
+    # First check API connectivity
+    if not check_api_connectivity():
+        logger.error("API connectivity check failed. Orders fetch aborted.")
+        return
+    
+    # Process orders
+    success = process_shopify_orders(force_update=force_update, days=days, limit=limit)
+    
+    if success:
+        logger.info("Shopify orders fetch completed successfully")
+    else:
+        logger.warning("Shopify orders fetch completed with issues")
 
 
 def schedule_scraper(force_scrape=False, max_products=None):
@@ -211,7 +316,10 @@ def main():
     # Parse command line arguments
     force_scrape = False
     run_once = False
+    process_orders = False
     max_products = None
+    orders_days = 30
+    orders_limit = 100
     
     for i, arg in enumerate(sys.argv[1:]):
         if arg == "--once":
@@ -225,12 +333,36 @@ def main():
                 logger.info(f"Maximum product limit set to {max_products}")
             except (ValueError, IndexError):
                 logger.warning("Invalid max-products value, using unlimited")
+        elif arg == "--orders":
+            process_orders = True
+            logger.info("Will process Shopify orders")
+        elif arg == "--orders-days" and i+1 < len(sys.argv[1:]):
+            try:
+                orders_days = int(sys.argv[i+2])
+                logger.info(f"Will fetch orders from the last {orders_days} days")
+            except (ValueError, IndexError):
+                logger.warning("Invalid orders-days value, using default (30)")
+        elif arg == "--orders-limit" and i+1 < len(sys.argv[1:]):
+            try:
+                orders_limit = int(sys.argv[i+2])
+                logger.info(f"Will fetch up to {orders_limit} orders")
+            except (ValueError, IndexError):
+                logger.warning("Invalid orders-limit value, using default (100)")
     
-    # Check if running as a one-time job or scheduled service
-    if run_once:
-        run_scraper(force_scrape=force_scrape, max_products=max_products)
+    # Check what to run
+    if process_orders:
+        # Run only the Shopify orders process
+        if run_once:
+            run_shopify_orders_fetch(force_update=force_scrape, days=orders_days, limit=orders_limit)
+        else:
+            logger.error("Scheduled execution not implemented for orders. Please use --once")
+            return 1
     else:
-        schedule_scraper(force_scrape=force_scrape, max_products=max_products)
+        # Run the regular scraper
+        if run_once:
+            run_scraper(force_scrape=force_scrape, max_products=max_products)
+        else:
+            schedule_scraper(force_scrape=force_scrape, max_products=max_products)
     
     return 0
 
