@@ -1,4 +1,6 @@
-"""Configuration module for the Taurbull scraper."""
+"""
+Configuration module for the Taurbull scraper.
+"""
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -17,6 +19,7 @@ ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1"
 
 # Scraping Configuration
 DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+# How often to check for website updates (in hours)
 SCRAPE_INTERVAL_HOURS = int(os.getenv("SCRAPE_INTERVAL_HOURS", "24"))
 
 # URLs
@@ -34,4 +37,4 @@ PAGES = {
     "terms_of_service": TERMS_OF_SERVICE_URL,
     "products": PRODUCT_CATALOG_URL,
     # Add more pages here as needed
-}
+} 
